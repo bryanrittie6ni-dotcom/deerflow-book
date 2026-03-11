@@ -1,0 +1,25 @@
+<svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="deer-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="100%" stop-color="#4C1D95"/>
+    </linearGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="60" cy="60" r="54" fill="url(#deer-gradient)" opacity="0.15"/>
+  <circle cx="60" cy="60" r="54" stroke="url(#deer-gradient)" stroke-width="3" fill="none"/>
+  <!-- Deer antler left -->
+  <path d="M42 55 L42 30 L35 20 M42 35 L33 28 M42 42 L36 38" stroke="#8B5CF6" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <!-- Deer antler right -->
+  <path d="M78 55 L78 30 L85 20 M78 35 L87 28 M78 42 L84 38" stroke="#8B5CF6" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <!-- Deer head -->
+  <ellipse cx="60" cy="65" rx="20" ry="22" fill="#7C3AED" opacity="0.3"/>
+  <ellipse cx="60" cy="65" rx="20" ry="22" stroke="#7C3AED" stroke-width="2.5" fill="none"/>
+  <!-- Eyes -->
+  <circle cx="52" cy="60" r="3" fill="#8B5CF6"/>
+  <circle cx="68" cy="60" r="3" fill="#8B5CF6"/>
+  <!-- Nose -->
+  <ellipse cx="60" cy="72" rx="5" ry="3.5" fill="#6D28D9"/>
+  <!-- DF text -->
+  <text x="60" y="100" text-anchor="middle" fill="#7C3AED" font-size="14" font-weight="bold" font-family="monospace">DF</text>
+</svg>
