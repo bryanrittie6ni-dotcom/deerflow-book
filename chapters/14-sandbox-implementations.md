@@ -1,8 +1,8 @@
-# 第 15 章　Local Sandbox 与 aio-sandbox 深度解析
+# 第 14 章　Local Sandbox 与 aio-sandbox 深度解析
 
 上一章讲述了 Sandbox 的抽象设计，本章将钻入两种最常用的具体实现：适合本地开发的 `LocalSandbox`，以及字节跳动开源的容器化方案 `aio-sandbox`。我们将对比它们的路径映射策略、命令执行方式和生命周期管理，帮助读者根据场景做出正确的技术选型。
 
-## 15.1 LocalSandbox：简单直接的本地执行
+## 14.1 LocalSandbox：简单直接的本地执行
 
 `LocalSandbox` 是最轻量的实现——它直接在宿主机上执行命令，不需要 Docker 或任何容器运行时。
 
@@ -93,7 +93,7 @@ class LocalSandboxProvider(SandboxProvider):
 
 所有线程共享同一个 LocalSandbox 实例，`release` 是空操作。这在开发环境中完全合理——没有容器需要管理。
 
-## 15.2 aio-sandbox：字节开源的容器化方案
+## 14.2 aio-sandbox：字节开源的容器化方案
 
 aio-sandbox（All-In-One Sandbox）是字节跳动开源的沙箱容器，提供了真正的进程隔离。DeerFlow 通过 HTTP API 与之交互。
 
@@ -170,7 +170,7 @@ def release(self, sandbox_id: str) -> None:
 
 **空闲超时。** 后台守护线程每 60 秒检查一次，超过 `idle_timeout`（默认 600 秒）未活动的容器会被自动销毁。
 
-## 15.3 sandbox_config.yaml 配置详解
+## 14.3 sandbox_config.yaml 配置详解
 
 一个完整的 aio-sandbox 配置示例：
 
@@ -216,7 +216,7 @@ sandbox:
 
 Provider 会自动选择 `RemoteSandboxBackend`，通过 HTTP API 与 Provisioner 通信，由后者在 k3s 中动态创建 Pod 和 NodePort Service。
 
-## 15.4 实战对比三种 Sandbox
+## 14.4 实战对比三种 Sandbox
 
 | 维度 | LocalSandbox | aio-sandbox (Local) | aio-sandbox (K8s) |
 |------|-------------|--------------------|--------------------|
@@ -230,7 +230,7 @@ Provider 会自动选择 `RemoteSandboxBackend`，通过 HTTP API 与 Provisione
 
 开发阶段推荐使用 LocalSandbox，零依赖即可开始。需要安全隔离的场景切换到 aio-sandbox，只需修改配置文件中的 `use` 字段，Agent 代码无需任何改动。
 
-## 15.5 SandboxMiddleware 生命周期总结
+## 14.5 SandboxMiddleware 生命周期总结
 
 把中间件与 Provider 的交互串联起来，Sandbox 的完整生命周期如下：
 

@@ -1,8 +1,8 @@
-# 第 21 章　模型配置与适配
+# 第 22 章　模型配置与适配
 
 DeerFlow 的模型层设计目标是让用户能够自由接入任意 LLM 提供商，同时统一处理"思考模式"、"视觉输入"等差异化能力。本章深入解析模型配置的数据结构、工厂函数的工作机制，以及 PatchedChatDeepSeek 的补丁逻辑。
 
-## 21.1 ModelConfig 数据结构
+## 22.1 ModelConfig 数据结构
 
 每个模型在 `config.yaml` 的 `models` 列表中对应一个条目，由 `ModelConfig` 验证：
 
@@ -24,7 +24,7 @@ class ModelConfig(BaseModel):
 
 `extra="allow"` 是关键设计——它允许不同提供商的特有参数（如 `api_key`、`api_base`、`base_url`、`max_tokens`、`temperature`、`google_api_key` 等）直接透传，无需预先定义。
 
-## 21.2 use 字段与动态加载
+## 22.2 use 字段与动态加载
 
 `use` 字段的格式为 `package.module:ClassName`，工厂函数通过反射机制在运行时加载：
 
@@ -50,7 +50,7 @@ MODULE_TO_PACKAGE_HINTS = {
 
 当依赖包缺失时，错误信息会直接告诉你该运行 `uv add langchain-openai`。
 
-## 21.3 create_chat_model 工厂函数
+## 22.3 create_chat_model 工厂函数
 
 `create_chat_model` 是模型实例化的核心入口：
 
@@ -123,7 +123,7 @@ if is_tracing_enabled():
     model_instance.callbacks = [*existing_callbacks, tracer]
 ```
 
-## 21.4 PatchedChatDeepSeek
+## 22.4 PatchedChatDeepSeek
 
 DeepSeek 的思考模式要求多轮对话中每条 assistant 消息都携带 `reasoning_content` 字段，但 LangChain 的默认实现将其存储在 `additional_kwargs` 中、发送时却不包含。`PatchedChatDeepSeek` 通过重写 `_get_request_payload` 修复了这个问题：
 
@@ -146,7 +146,7 @@ class PatchedChatDeepSeek(ChatDeepSeek):
 
 这个补丁同样适用于豆包（Volcengine Doubao）和 Kimi 等兼容 DeepSeek 协议的模型。
 
-## 21.5 推荐模型搭配
+## 22.5 推荐模型搭配
 
 根据 `config.example.yaml` 中的示例，以下是几种典型配置：
 

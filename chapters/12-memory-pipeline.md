@@ -1,8 +1,8 @@
-# 第 13 章　记忆更新流水线
+# 第 12 章　记忆更新流水线
 
 上一章我们剖析了记忆的数据结构和配置体系。但一个关键问题尚未回答：对话结束后，记忆究竟是如何被更新的？答案是一条精心设计的异步流水线——从 `MemoryMiddleware` 捕获对话、到 `MemoryUpdateQueue` 防抖去重、再到 `MemoryUpdater` 调用 LLM 抽取并原子写入。本章将沿着这条流水线逐步展开。
 
-## 13.1 MemoryMiddleware：对话的捕获者
+## 12.1 MemoryMiddleware：对话的捕获者
 
 记忆更新的起点在 `MemoryMiddleware.after_agent` 方法。每当 Agent 完成一轮执行，中间件自动触发：
 
@@ -47,7 +47,7 @@ class MemoryMiddleware(AgentMiddleware[MemoryMiddlewareState]):
 _UPLOAD_BLOCK_RE = re.compile(r"<uploaded_files>[\s\S]*?</uploaded_files>\n*", re.IGNORECASE)
 ```
 
-## 13.2 Memory Queue：防抖与并发控制
+## 12.2 Memory Queue：防抖与并发控制
 
 过滤后的对话不会立即触发 LLM 更新，而是进入 `MemoryUpdateQueue`。这个队列解决了两个问题：频繁更新的性能开销，以及并发写入的数据竞争。
 
@@ -137,7 +137,7 @@ def _process_queue(self) -> None:
 
 `_queue.copy()` + `_queue.clear()` 的模式确保了处理期间新入队的消息不会丢失——它们会在下一轮处理中被消费。
 
-## 13.3 MemoryUpdater：LLM 抽取与合并
+## 12.3 MemoryUpdater：LLM 抽取与合并
 
 队列处理的核心是 `MemoryUpdater.update_memory`。这个方法编排了一条完整的管道：
 
@@ -167,7 +167,7 @@ def format_conversation_for_update(messages: list[Any]) -> str:
     return "\n\n".join(lines)
 ```
 
-## 13.4 原子写入
+## 12.4 原子写入
 
 记忆写入采用了经典的"写临时文件 + rename"模式，保证了即使进程在写入过程中崩溃，也不会留下损坏的 JSON 文件：
 
@@ -200,7 +200,7 @@ def _save_memory_to_file(memory_data: dict[str, Any], agent_name: str | None = N
 
 `ensure_ascii=False` 确保中文等非 ASCII 字符以原始形式存储，而非转义序列。
 
-## 13.5 全局单例与生命周期
+## 12.5 全局单例与生命周期
 
 `MemoryUpdateQueue` 通过全局单例模式管理：
 
@@ -218,7 +218,7 @@ def get_memory_queue() -> MemoryUpdateQueue:
 
 双重锁保护（`_queue_lock` 保护单例创建，`_lock` 保护队列内部操作）确保了多线程环境下的安全性。
 
-## 13.6 实战：连续对话后 memory.json 的变化
+## 12.6 实战：连续对话后 memory.json 的变化
 
 假设用户与 DeerFlow 进行了三轮对话：
 

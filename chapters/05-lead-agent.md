@@ -1,8 +1,8 @@
-# 第 6 章　Lead Agent：大脑的核心循环
+# 第 5 章　Lead Agent：大脑的核心循环
 
 在 DeerFlow 的架构中，Lead Agent 是整个系统的"大脑"。它接收用户消息、选择合适的模型、组装工具集、挂载中间件管道，最终通过 `create_agent()` 创建一个完整的可执行 Agent。本章深入剖析这一核心创建过程。
 
-## 6.1 `make_lead_agent`：一切从这里开始
+## 5.1 `make_lead_agent`：一切从这里开始
 
 `make_lead_agent` 是 Lead Agent 的工厂函数，位于 `backend/src/agents/lead_agent/agent.py`。它从 `RunnableConfig` 中提取运行时参数，完成模型解析、工具组装、中间件构建和 Prompt 模板渲染，最终调用 `create_agent()`。
 
@@ -47,7 +47,7 @@ def make_lead_agent(config: RunnableConfig):
 | `system_prompt` | 系统提示词，包含角色、技能、记忆等上下文 |
 | `state_schema` | 状态模式，即 `ThreadState` |
 
-## 6.2 模型选择与 Fallback 策略
+## 5.2 模型选择与 Fallback 策略
 
 模型解析经过三层优先级：请求参数 > 自定义 Agent 配置 > 全局默认模型。`_resolve_model_name` 负责安全回退：
 
@@ -69,7 +69,7 @@ def _resolve_model_name(requested_model_name: str | None = None) -> str:
 
 这个设计确保了即使用户请求了一个不存在的模型名称，系统也不会崩溃，而是静默降级到默认模型。
 
-## 6.3 Thinking 模式 vs 普通模式
+## 5.3 Thinking 模式 vs 普通模式
 
 DeerFlow 支持"思考模式"（Thinking Mode），让模型在回答前进行深度推理。`make_lead_agent` 中有一段关键的兼容性检查：
 
@@ -82,7 +82,7 @@ if thinking_enabled and not model_config.supports_thinking:
 
 在 `create_chat_model`（`backend/src/models/factory.py`）中，Thinking 模式的开关通过 `when_thinking_enabled` 配置项传递给模型构造函数。当 Thinking 关闭时，系统还会主动向模型发送 `{"thinking": {"type": "disabled"}}` 以确保推理能力被彻底关闭，避免不必要的 token 消耗。
 
-## 6.4 工具集的动态组装
+## 5.4 工具集的动态组装
 
 工具组装逻辑位于 `backend/src/tools/tools.py` 的 `get_available_tools` 函数。DeerFlow 的工具来源有四类，最终合并为一个列表：
 
@@ -122,7 +122,7 @@ def get_available_tools(
 
 注意 MCP 工具使用 `ExtensionsConfig.from_file()` 而非缓存的 `config.extensions`，这是因为 MCP 配置可能通过 Gateway API 在另一个进程中被修改。每次创建 Agent 时重新从磁盘读取，确保配置的实时性。
 
-## 6.5 ThreadState 详解
+## 5.5 ThreadState 详解
 
 `ThreadState` 是 Lead Agent 的状态模式，定义了对话线程中需要持久化的所有数据。它继承自 LangChain 的 `AgentState`（自带 `messages` 字段），并扩展了多个业务字段：
 
@@ -162,7 +162,7 @@ def merge_artifacts(existing: list[str] | None, new: list[str] | None) -> list[s
 
 `merge_viewed_images` 还支持一个特殊语义：当 `new` 为空字典 `{}` 时，表示清空所有已查看的图片，这让 `ViewImageMiddleware` 可以在处理完图片后重置状态。
 
-## 6.6 系统提示词的模板化
+## 5.6 系统提示词的模板化
 
 `apply_prompt_template` 函数（`backend/src/agents/lead_agent/prompt.py`）将多个动态片段注入到 `SYSTEM_PROMPT_TEMPLATE` 中：
 

@@ -1,8 +1,8 @@
-# 第 4 章　Skills 系统：能力的核心扩展单元
+# 第 17 章　Skills 系统：能力的核心扩展单元
 
 在前面的章节中，我们了解了 DeerFlow 的整体架构和 Agent 调度机制。但一个关键问题始终存在：Agent 的能力从哪里来？答案就是 **Skills 系统**——DeerFlow 最核心的可扩展能力单元。
 
-## 4.1 Skill 是什么
+## 17.1 Skill 是什么
 
 在 DeerFlow 中，一个 Skill 就是 **一个目录加上一个 `SKILL.md` 文件**。`SKILL.md` 采用 YAML frontmatter + Markdown 正文的格式，既是元数据声明，也是 Agent 执行任务时的完整操作手册。
 
@@ -29,7 +29,7 @@ skills/
 
 在容器运行环境中，这些目录被挂载到 `/mnt/skills/public/` 和 `/mnt/skills/custom/`，Agent 通过读取对应路径下的 `SKILL.md` 获取完整的操作指令。
 
-## 4.2 Skill 的数据模型
+## 17.2 Skill 的数据模型
 
 Skill 的核心数据结构定义在 `backend/src/skills/types.py` 中：
 
@@ -63,7 +63,7 @@ class Skill:
 
 注意 `get_container_path` 方法：它将本地开发路径映射为容器内路径，这样无论在开发环境还是生产容器中，Skill 的引用路径都是一致的。
 
-## 4.3 SKILL.md 的解析过程
+## 17.3 SKILL.md 的解析过程
 
 `backend/src/skills/parser.py` 负责从文件解析出 `Skill` 对象。它的核心逻辑是通过正则表达式提取 YAML frontmatter：
 
@@ -110,7 +110,7 @@ def parse_skill_file(skill_file: Path, category: str,
 
 设计上值得关注的几点：解析器没有引入 PyYAML 等外部依赖，而是用简单的字符串分割实现，这让整个 Skills 系统保持了零外部依赖的轻量特性。`name` 和 `description` 是必填字段，缺少任何一个都会导致解析返回 `None`，从而跳过该 Skill。
 
-## 4.4 Skill 的加载与发现
+## 17.4 Skill 的加载与发现
 
 `backend/src/skills/loader.py` 中的 `load_skills` 函数负责遍历目录并收集所有 Skill：
 
@@ -162,7 +162,7 @@ def load_skills(skills_path: Path | None = None,
 3. **运行时状态**：通过 `ExtensionsConfig.from_file()` 每次都从磁盘读取最新配置，确保 Gateway API 的修改能实时生效。
 4. **确定性排序**：按名称排序，保证加载顺序一致。
 
-## 4.5 运行时启用与禁用：extensions_config.json
+## 17.5 运行时启用与禁用：extensions_config.json
 
 DeerFlow 通过 `extensions_config.json` 控制 Skill 的运行时状态：
 
@@ -188,7 +188,7 @@ def is_skill_enabled(self, skill_name: str, skill_category: str) -> bool:
 
 这意味着你不需要在配置文件中列出所有 Skill——只需要配置那些需要禁用的即可，默认策略是 "全部启用"。
 
-## 4.6 渐进式加载：保持 Context 精简
+## 17.6 渐进式加载：保持 Context 精简
 
 DeerFlow 的 Skills 系统采用 **三层渐进式加载** 策略，这是其设计中最精妙的部分：
 
@@ -227,7 +227,7 @@ Agent 收到的系统提示词中包含这段指令：
 
 这意味着 17 个内置 Skill 不会把数千行的操作手册全部塞进上下文窗口，而是只暴露简短的描述信息，让 Agent 根据任务需求"按需加载"，极大地节省了 token 消耗。
 
-## 4.7 内置 Skill 全览
+## 17.7 内置 Skill 全览
 
 DeerFlow 目前提供以下内置 Skill：
 
@@ -251,7 +251,7 @@ DeerFlow 目前提供以下内置 Skill：
 | `claude-to-deerflow` | 通过 HTTP API 与 DeerFlow 平台交互 |
 | `vercel-deploy` | 将应用部署到 Vercel，返回预览 URL |
 
-## 4.8 一个真实的 SKILL.md 示例
+## 17.8 一个真实的 SKILL.md 示例
 
 以 `deep-research` 为例，看看一个完整的 SKILL.md 长什么样：
 
@@ -291,7 +291,7 @@ Before proceeding to content generation, verify:
 
 注意 `description` 字段的措辞策略——它不是简单地描述功能，而是明确告诉 Agent **何时应该触发** 这个 Skill（"Use this skill instead of WebSearch for ANY question..."）。这种 "推动式" 的描述是 DeerFlow Skill 设计的一个重要技巧，能有效防止 Agent "欠触发" 的问题。
 
-## 4.9 Skill 可以包含的资源类型
+## 17.9 Skill 可以包含的资源类型
 
 Skill 目录中除了必须的 `SKILL.md`，还可以包含多种辅助资源：
 

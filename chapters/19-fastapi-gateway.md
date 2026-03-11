@@ -1,8 +1,8 @@
-# 第 18 章　FastAPI Gateway
+# 第 19 章　FastAPI Gateway
 
 DeerFlow 的 HTTP 服务层由两部分组成：LangGraph Server 负责代理执行和流式对话，FastAPI Gateway 则提供模型管理、MCP 配置、技能管理、文件上传等辅助 API。两者通过 Nginx 反向代理统一对外暴露。本章聚焦 FastAPI Gateway 的架构设计与实现细节。
 
-## 18.1 应用启动流程
+## 19.1 应用启动流程
 
 Gateway 的入口文件是 `gateway/app.py`，通过 `create_app` 工厂函数创建 FastAPI 实例：
 
@@ -72,7 +72,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 源码中有一行关键注释：`# CORS is handled by nginx - no need for FastAPI middleware`。DeerFlow 将 CORS 策略交由 Nginx 反向代理统一管理，避免了 FastAPI 层面的 CORS 配置。
 
-## 18.2 九大 Router 模块
+## 19.2 九大 Router 模块
 
 Gateway 按功能拆分为 9 个 Router 模块，每个模块职责单一：
 
@@ -207,7 +207,7 @@ async def restart_channel(name: str) -> ChannelRestartResponse:
     return ChannelRestartResponse(success=success, ...)
 ```
 
-## 18.3 OpenAPI 文档
+## 19.3 OpenAPI 文档
 
 Gateway 内置了完善的 OpenAPI 文档，通过 `/docs`（Swagger UI）和 `/redoc` 访问。每个路由组都配有标签描述：
 
@@ -226,7 +226,7 @@ openapi_tags=[
 
 所有 API 端点都使用 Pydantic 模型定义请求和响应格式，确保类型安全和文档自动生成。
 
-## 18.4 架构全景
+## 19.4 架构全景
 
 Gateway 在 DeerFlow 整体架构中的位置如下：
 

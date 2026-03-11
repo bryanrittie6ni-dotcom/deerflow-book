@@ -1,8 +1,8 @@
-# 第 20 章　配置体系全解
+# 第 21 章　配置体系全解
 
 DeerFlow 的配置体系由三层文件组成：`config.yaml` 负责核心应用设置，`extensions_config.json` 管理 MCP 服务器与技能状态，`.env` 文件提供敏感凭据。三者职责分明、互相配合，共同构成了一套灵活而安全的配置架构。
 
-## 20.1 配置加载流程
+## 21.1 配置加载流程
 
 应用启动时，`AppConfig.from_file()` 按如下优先级定位 `config.yaml`：
 
@@ -45,7 +45,7 @@ def get_app_config() -> AppConfig:
 
 运行时可通过 `reload_app_config()` 热重载，或通过 `set_app_config()` 注入测试替身。
 
-## 20.2 环境变量注入：$VAR_NAME 语法
+## 21.2 环境变量注入：$VAR_NAME 语法
 
 DeerFlow 支持在 YAML 值中使用 `$` 前缀引用环境变量。`resolve_env_variables` 方法递归遍历整棵配置树，将所有以 `$` 开头的字符串替换为对应的环境变量值：
 
@@ -80,7 +80,7 @@ models:
 
 注意：`config.yaml` 中的环境变量如果找不到会直接抛出异常；而 `extensions_config.json` 中找不到环境变量时，会静默替换为空字符串——两者行为有差异，这是设计上的考量。
 
-## 20.3 config.yaml 全字段速查
+## 21.3 config.yaml 全字段速查
 
 `config.yaml` 的顶层结构对应 `AppConfig` 的字段：
 
@@ -110,7 +110,7 @@ tools:
 
 `use` 字段是 DeerFlow 配置体系的核心机制——它是一个 Python 类/变量路径，格式为 `module.path:ClassName`。系统通过 `resolve_class` 或 `resolve_variable` 在运行时动态导入。
 
-## 20.4 extensions_config.json：MCP 服务器与技能状态
+## 21.4 extensions_config.json：MCP 服务器与技能状态
 
 `extensions_config.json` 是独立于 `config.yaml` 的 JSON 文件，管理两类扩展：
 
@@ -163,7 +163,7 @@ config = get_extensions_config()
 enabled_servers = config.get_enabled_mcp_servers()
 ```
 
-## 20.5 skills_state_config
+## 21.5 skills_state_config
 
 在 `extensions_config.json` 的 `skills` 字段中，可以控制各技能的启用状态。默认情况下，`public` 和 `custom` 类别的技能自动启用，只有在显式配置 `"enabled": false` 时才会禁用：
 
@@ -175,7 +175,7 @@ def is_skill_enabled(self, skill_name: str, skill_category: str) -> bool:
     return skill_config.enabled
 ```
 
-## 20.6 Checkpointer 持久化配置
+## 21.6 Checkpointer 持久化配置
 
 DeerFlow 支持三种 Checkpointer 后端来持久化 LangGraph 的对话状态：
 

@@ -1,10 +1,10 @@
-# 第 11 章　并发调度与 Orchestration 策略
+# 第 10 章　并发调度与 Orchestration 策略
 
 前两章分别介绍了 Sub-Agent 的架构设计和执行引擎。本章将聚焦于一个核心问题：Lead Agent 如何正确地将复杂任务分解为多个子任务，并在并发限制下高效执行？
 
 答案藏在两个地方：`SubagentLimitMiddleware` 提供硬性约束，System Prompt 中的 Orchestration 提示词提供软性引导。两者协同工作，构成了 DeerFlow 的并发调度体系。
 
-## 11.1 SubagentLimitMiddleware：硬限制
+## 10.1 SubagentLimitMiddleware：硬限制
 
 LLM 并不总是严格遵守 prompt 中的指令。当模型一次生成超过 3 个 `task` 调用时，必须有一道硬性防线。`SubagentLimitMiddleware` 正是这道防线：
 
@@ -78,7 +78,7 @@ def _clamp_subagent_limit(value: int) -> int:
 
 **`after_model` 钩子**：Middleware 在模型生成响应后、工具执行前介入，此时截断多余的调用是最佳时机——工具还没开始执行，不会造成资源浪费。
 
-## 11.2 Prompt 工程：引导 LLM 正确分解任务
+## 10.2 Prompt 工程：引导 LLM 正确分解任务
 
 硬限制只是最后一道防线，真正的编排智慧来自 System Prompt 中的 `<subagent_system>` 部分。这段提示词经过精心设计，教会 LLM 如何做一个好的任务编排者。
 
@@ -155,7 +155,7 @@ DO NOT use subagents when:
 
 最后一条特别重要：如果步骤之间有依赖关系，不应该并行化，而应该由 Lead Agent 自己顺序执行。
 
-## 11.3 max_concurrent 与 Middleware 的协同
+## 10.3 max_concurrent 与 Middleware 的协同
 
 `max_concurrent` 参数在创建 Lead Agent 时传入，同时影响 Prompt 和 Middleware：
 
@@ -173,7 +173,7 @@ def apply_prompt_template(
 
 Prompt 中的 `{n}` 和 Middleware 的 `max_concurrent` 使用相同的值。这保证了"软引导"和"硬截断"对齐——模型被告知限制是 3，Middleware 也按 3 来截断。如果两者不一致，模型可能会因为被截断而困惑，导致不可预期的行为。
 
-## 11.4 实战案例：3 个子 Agent 并行分析 5 个竞品
+## 10.4 实战案例：3 个子 Agent 并行分析 5 个竞品
 
 假设用户问："帮我对比分析 AWS、Azure、GCP、阿里云和 Oracle Cloud 这 5 个云平台。"
 
@@ -202,7 +202,7 @@ task(description="Oracle Cloud 分析", prompt="详细分析 Oracle Cloud 的核
 
 整个过程中，如果 Lead Agent 在第一轮就尝试启动 5 个 `task` 调用，`SubagentLimitMiddleware` 会截断为 3 个，并在日志中记录警告。
 
-## 11.5 实战案例：并行调研 10 篇论文
+## 10.5 实战案例：并行调研 10 篇论文
 
 另一个典型场景："帮我调研这 10 篇深度学习论文的核心贡献。"
 
@@ -236,7 +236,7 @@ task(
 
 通用型 Sub-Agent 会利用 `web_search` 等工具搜索论文信息，在自己的隔离上下文中完成分析，最后将结果返回给 Lead Agent。
 
-## 11.6 thinking 引导与 critical_reminders
+## 10.6 thinking 引导与 critical_reminders
 
 除了 `<subagent_system>` 块，System Prompt 还在 `<thinking_style>` 和 `<critical_reminders>` 中嵌入了编排相关的引导：
 
@@ -260,7 +260,7 @@ subagent_reminder = (
 
 这种"多处重复、不同视角"的提示策略是实践中被证明有效的方式——在思考阶段提醒分解检查，在执行阶段提醒硬限制，在总结提醒中强调综合。多层强化显著降低了模型违反规则的概率。
 
-## 11.7 从 Prompt 到 Middleware 的完整链路
+## 10.7 从 Prompt 到 Middleware 的完整链路
 
 总结整个并发调度的工作流程：
 

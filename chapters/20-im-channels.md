@@ -1,8 +1,8 @@
-# 第 19 章　IM 渠道系统
+# 第 20 章　IM 渠道系统
 
 DeerFlow 不仅是一个 Web 应用，还可以作为 IM 机器人嵌入到 Telegram、Slack 和飞书中。本章将深入分析 IM 渠道系统的架构设计，从抽象基类到消息总线，再到三个具体渠道的实现。
 
-## 19.1 Channel 抽象基类
+## 20.1 Channel 抽象基类
 
 所有 IM 渠道实现都继承自 `channels/base.py` 中的 `Channel` 抽象基类：
 
@@ -68,7 +68,7 @@ async def _on_outbound(self, msg: OutboundMessage) -> None:
 
 这个设计保证了文本消息和文件附件的发送顺序，且文本发送失败时不会尝试发送孤立的文件。
 
-## 19.2 MessageBus — 异步消息总线
+## 20.2 MessageBus — 异步消息总线
 
 `channels/message_bus.py` 定义了整个渠道系统的消息模型和 Pub/Sub 中枢。
 
@@ -149,7 +149,7 @@ class MessageBus:
 
 入站方向使用 `asyncio.Queue`——渠道生产消息，`ChannelManager` 消费消息并调度代理处理。出站方向使用回调列表——每个渠道在启动时注册 `_on_outbound` 回调，`ChannelManager` 发布出站消息时所有渠道都会收到通知，但只有 `channel_name` 匹配的渠道才实际发送。
 
-## 19.3 ChannelService — 渠道生命周期管理
+## 20.3 ChannelService — 渠道生命周期管理
 
 `channels/service.py` 中的 `ChannelService` 管理所有渠道的启停：
 
@@ -196,7 +196,7 @@ async def start_channel_service() -> ChannelService:
     return _channel_service
 ```
 
-## 19.4 三大渠道实现
+## 20.4 三大渠道实现
 
 ### 19.4.1 Telegram
 
@@ -335,7 +335,7 @@ channels:
     app_secret: "xxx..."
 ```
 
-## 19.5 实战：配置 Telegram Bot
+## 20.5 实战：配置 Telegram Bot
 
 以下是从零开始配置 Telegram 渠道的完整步骤：
 

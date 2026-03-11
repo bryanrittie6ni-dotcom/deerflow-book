@@ -1,10 +1,10 @@
-# 第 10 章　SubagentExecutor：执行引擎
+# 第 9 章　SubagentExecutor：执行引擎
 
 上一章从架构层面介绍了 Sub-Agent 的整体设计。本章将深入 `SubagentExecutor` 的实现细节，剖析它如何通过双线程池架构、状态机管理和超时控制来可靠地执行子任务。
 
 所有核心代码都集中在 `backend/src/subagents/executor.py` 这一个文件中，代码量不到 500 行，但麻雀虽小五脏俱全。
 
-## 10.1 SubagentStatus 状态机
+## 9.1 SubagentStatus 状态机
 
 每个 Sub-Agent 任务都有一个明确的生命周期，由 `SubagentStatus` 枚举定义：
 
@@ -29,7 +29,7 @@ PENDING → RUNNING → COMPLETED
 
 这种设计确保了每个任务在任何时刻都有一个确定的状态，避免了状态模糊导致的并发问题。
 
-## 10.2 SubagentResult 数据结构
+## 9.2 SubagentResult 数据结构
 
 `SubagentResult` 是 Sub-Agent 执行的完整记录：
 
@@ -59,7 +59,7 @@ class SubagentResult:
 
 注意 `__post_init__` 中对 `ai_messages` 的处理——这是 Python dataclass 处理可变默认值的标准做法，避免了多个实例共享同一个列表对象的经典陷阱。
 
-## 10.3 双线程池架构
+## 9.3 双线程池架构
 
 `SubagentExecutor` 最具特色的设计是双线程池分离：
 
@@ -139,7 +139,7 @@ def execute_async(self, task: str, task_id: str | None = None) -> str:
 
 整个流程中，`_background_tasks_lock` 确保了对共享状态字典的线程安全访问。每次状态更新都在锁内完成，避免了读写竞争。
 
-## 10.4 同步执行与异步桥接
+## 9.4 同步执行与异步桥接
 
 `execute` 方法是同步与异步的桥接层：
 
@@ -167,7 +167,7 @@ def execute(self, task: str, result_holder: SubagentResult | None = None) -> Sub
 
 `_aexecute` 方法使用 `astream` 以流式方式获取 Agent 的执行过程，每产生一条新的 `AIMessage` 就追加到 `result.ai_messages` 列表中。由于 `result_holder` 是从全局 `_background_tasks` 字典中取出的引用，更新会实时反映到轮询方查看的数据中。
 
-## 10.5 任务轮询与进度推送
+## 9.5 任务轮询与进度推送
 
 `task_tool` 中的轮询循环每 5 秒检查一次任务状态：
 
@@ -195,7 +195,7 @@ while True:
 
 轮询过程中，每当检测到新的 AI 消息，会通过 `stream_writer` 向前端推送 `task_running` 事件，实现实时进度展示。`max_poll_count` 作为安全网，设置为 `(timeout_seconds + 60) / 5`，在执行超时加 60 秒缓冲后强制结束轮询。
 
-## 10.6 Background Task 清理
+## 9.6 Background Task 清理
 
 为防止内存泄漏，完成的任务需要从全局字典中清除：
 
@@ -217,7 +217,7 @@ def cleanup_background_task(task_id: str) -> None:
 
 清理只在终态时执行，这个检查避免了一种竞态条件：如果轮询线程在 scheduler 线程更新状态之前就尝试清理，可能会删除一个仍在运行的任务条目。通过检查是否处于终态，确保了清理操作的安全性。
 
-## 10.7 错误处理的三层防护
+## 9.7 错误处理的三层防护
 
 Sub-Agent 的错误处理设计了三层防护网：
 

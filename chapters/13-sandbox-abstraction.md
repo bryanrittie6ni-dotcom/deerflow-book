@@ -1,8 +1,8 @@
-# 第 14 章　Sandbox 抽象层
+# 第 13 章　Sandbox 抽象层
 
 Agent 能力的天花板取决于它能操作多大的世界。DeerFlow 给每个 Agent 配备了一台"虚拟计算机"——拥有完整的文件系统、Bash 执行环境和五种标准化工具。本章将剖析这套 Sandbox 抽象层的设计：从虚拟路径映射到工具接口，从抽象基类到三种具体实现。
 
-## 14.1 /mnt/user-data：虚拟文件系统的起点
+## 13.1 /mnt/user-data：虚拟文件系统的起点
 
 DeerFlow 为所有 Sandbox 环境定义了统一的虚拟路径前缀：
 
@@ -54,7 +54,7 @@ def replace_virtual_path(path: str, thread_data: ThreadDataState | None) -> str:
 
 这种设计的精妙之处在于：Agent 的工具代码始终使用虚拟路径编写，完全不感知底层是本地文件系统还是远程容器。路径翻译对 Agent 透明。
 
-## 14.2 五个沙箱工具
+## 13.2 五个沙箱工具
 
 DeerFlow 提供了五个标准化的沙箱工具，覆盖了 Agent 与计算环境交互的核心需求：
 
@@ -92,7 +92,7 @@ def bash_tool(runtime: ToolRuntime, description: str, command: str) -> str:
 
 值得注意的是，每个工具的第一个参数都是 `description`——要求 Agent 在调用前先用自然语言解释"为什么要执行这个操作"。这不仅提升了可审计性，也帮助 LLM 在推理时更加谨慎。
 
-## 14.3 延迟初始化：ensure_sandbox_initialized
+## 13.3 延迟初始化：ensure_sandbox_initialized
 
 并非所有 Agent 调用都需要 Sandbox。DeerFlow 采用延迟初始化策略，只在第一次使用沙箱工具时才创建沙箱实例：
 
@@ -130,7 +130,7 @@ def ensure_sandbox_initialized(runtime: ToolRuntime | None = None) -> Sandbox:
 
 获取后的 `sandbox_id` 被写入 `runtime.state`，后续工具调用可以直接复用，避免重复创建。
 
-## 14.4 Sandbox 抽象基类
+## 13.4 Sandbox 抽象基类
 
 所有沙箱实现的统一接口定义在 `sandbox.py` 中：
 
@@ -163,7 +163,7 @@ class Sandbox(ABC):
 
 五个抽象方法对应五种基本文件系统操作。`update_file` 接受二进制内容，与 `write_file` 的文本模式互补。
 
-## 14.5 三种实现
+## 13.5 三种实现
 
 DeerFlow 提供了三种 Sandbox 实现，适用于不同的部署场景：
 
@@ -205,7 +205,7 @@ class SandboxConfig(BaseModel):
 
 `extra="allow"` 确保未知配置字段不会导致解析失败，为未来扩展留出空间。
 
-## 14.6 SandboxMiddleware 生命周期
+## 13.6 SandboxMiddleware 生命周期
 
 `SandboxMiddleware` 管理 Sandbox 的创建与释放：
 
@@ -237,6 +237,85 @@ class SandboxMiddleware(AgentMiddleware[SandboxMiddlewareState]):
 ```
 
 默认的 `lazy_init=True` 模式下，`before_agent` 不做任何事情，Sandbox 的创建推迟到第一次工具调用。`after_agent` 负责释放——但对于 aio-sandbox，"释放"只是将容器放入热池（warm pool），并不真正销毁，下次复用时无需冷启动。
+
+## 13.7 /mnt/ 命名的设计哲学
+
+为什么选择 `/mnt/` 而不是 `/workspace/` 或 `/data/`？这个看似随意的命名决策背后隐藏着对 LLM 认知模型的深刻理解。
+
+在 Linux 系统中，`/mnt/` 是传统的外部文件系统挂载点。当管理员挂载 USB 设备、网络共享或外部磁盘时，惯例性地挂载到 `/mnt/` 下。这一惯例已经深深嵌入了 LLM 的训练数据——大量的 Linux 教程、运维文档、Stack Overflow 回答都反复强化了这个语义：`/mnt/` 意味着"外部的、持久的、共享的存储"。
+
+DeerFlow 正是利用了这一语义锚点。当 Agent 看到 `/mnt/user-data/workspace/` 路径时，LLM 会自然地将其理解为一块挂载进来的外部存储——它是持久的（不会随进程退出而消失）、是共享的（用户可以访问）、是"真实的"（不是临时缓存）。这种理解驱动 Agent 在操作文件时表现出恰当的行为：它会认真对待写入操作，不会随意覆盖已有文件，也不会把临时数据写到这个路径下。
+
+这一设计灵感部分来源于 Claude 的 Mount drive 概念——Agent 将 `/mnt/` 视为自己的"外挂硬盘"。相比之下，其他 Agent 框架常用 `/workspace/` 或自定义路径，虽然功能上等价，但缺少了与 LLM 内在知识结构的对齐。命名不是任意的，它是 Prompt Engineering 在文件系统层面的延伸。
+
+## 13.8 虚拟路径 → 物理路径的双向映射
+
+虚拟路径的统一只是故事的一半。不同部署环境下，虚拟路径到物理路径的映射策略截然不同。
+
+**Local Sandbox 的双向映射：**
+
+```
+/mnt/user-data/workspace/* → ~/.deerflow/threads/{thread_id}/user-data/workspace/*
+/mnt/user-data/uploads/*   → ~/.deerflow/threads/{thread_id}/user-data/uploads/*
+/mnt/user-data/outputs/*   → ~/.deerflow/threads/{thread_id}/user-data/outputs/*
+/mnt/skills/*              → ~/.deerflow/skills/*
+```
+
+LocalSandbox 不仅做正向映射（虚拟路径 → 物理路径），还做反向映射：当命令执行的输出中包含物理路径时，`replace_physical_paths_in_output` 函数会将其转换回虚拟路径。这确保 Agent 永远不会看到宿主机的真实目录结构——既是安全考量，也避免 Agent 在后续推理中使用物理路径导致混乱。
+
+**Docker（aio-sandbox）的恒等映射：**
+
+```
+/mnt/user-data/* → /mnt/user-data/* （恒等映射，Docker Volume 挂载）
+/mnt/skills/*    → /mnt/skills/*    （恒等映射）
+```
+
+容器内部的文件系统已经通过 Docker Volume 挂载了这些路径，无需任何翻译。虚拟路径就是物理路径。
+
+**K8s（Remote）的存储卷映射：**
+
+```
+/mnt/user-data/* → PersistentVolume 挂载到 Pod 内部
+/mnt/skills/*    → ConfigMap 或 PV 挂载
+```
+
+同一份 Skill 代码、同一套工具函数，在三种环境下无缝运行。开发者在本地用 LocalSandbox 调试，测试环境用 aio-sandbox 隔离，生产环境用 K8s 弹性伸缩——代码一行不改。这就是虚拟路径抽象的价值。
+
+## 13.9 五个沙箱工具的权限边界
+
+五个工具各自有明确的能力边界：
+
+| 工具 | 能做什么 | 不能做什么 |
+|------|---------|-----------|
+| bash | 在沙箱内执行任意命令，600 秒超时 | 无法逃逸沙箱边界，默认无网络访问控制 |
+| ls | 列出目录内容，最多 2 层深度 | 无法超过 max_depth=2 的限制 |
+| read_file | 读取沙箱内任意文件，支持行范围 | 不支持二进制文件（仅文本） |
+| write_file | 写入/追加文本，自动创建父目录 | 不支持写入二进制内容 |
+| str_replace | 文件内查找替换，支持单次和全局 | old_string 未找到时报错失败 |
+
+值得注意的三个共性约束。第一，所有工具都要求 `description` 参数——Agent 必须在行动前解释"为什么"。这不是形式主义：它迫使 LLM 在 chain-of-thought 中显式推理操作意图，减少盲目执行的概率。第二，所有工具在执行前都会调用 `ensure_sandbox_initialized()`，确保沙箱实例已就绪。第三，在 LocalSandbox 模式下，所有工具还会调用 `ensure_thread_directories_exist()`，确保线程对应的物理目录已创建。
+
+## 13.10 SandboxMiddleware 的三个阶段
+
+中间件将 Sandbox 的生命周期管理拆分为获取、注入、释放三个阶段。
+
+**阶段一：获取（Acquire）。** 当 `lazy_init=True`（默认值）时，`before_agent` 阶段不做任何事情，Sandbox 的获取推迟到第一次工具调用中的 `ensure_sandbox_initialized()`。当 `lazy_init=False` 时，`before_agent` 立即通过 `provider.acquire(thread_id)` 申请沙箱实例，返回 `sandbox_id`。
+
+**阶段二：注入（Inject into State）。** 获取到的 `sandbox_id` 被写入两个位置：`runtime.state["sandbox"] = {"sandbox_id": sandbox_id}` 用于跨工具调用的持久化（通过 checkpointer 还能跨 turn 持久化），`runtime.context["sandbox_id"]` 用于清理阶段的快速引用。一个 Agent turn 内的多次工具调用共享同一个 sandbox_id，避免重复创建。
+
+**阶段三：释放（Cleanup）。** `after_agent()` 检查 state 和 context 中的 sandbox_id，调用 `provider.release(sandbox_id)` 归还资源。但"释放"的语义因实现而异：对于 LocalSandbox，release 是空操作（单例模式，进程级别复用）；对于 aio-sandbox，release 将容器放回热池而非销毁，下次使用时免去冷启动开销。真正的资源回收发生在应用关闭时，由 `shutdown_sandbox_provider()` 统一处理。
+
+## 13.11 sandbox_provider 的 lazy 初始化
+
+Provider 本身也采用了延迟初始化模式。`get_sandbox_provider()` 函数维护一个全局的 `_default_sandbox_provider` 单例：
+
+首次调用时，从 `config.yaml` 的 `sandbox.use` 字段读取类路径字符串（如 `src.sandbox.local:LocalSandboxProvider`），通过反射机制动态实例化 Provider 并缓存。后续调用直接返回缓存实例。
+
+为什么要 lazy？因为在 Python 模块导入阶段，`config.yaml` 可能尚未加载完毕。如果在模块级别就实例化 Provider，会触发配置缺失的错误。延迟到第一次实际使用时初始化，确保配置已就绪。
+
+为什么要单例？因为 Provider 管理着共享资源——aio-sandbox 的容器池、K8s 的集群连接。多实例会导致资源泄漏或状态不一致。
+
+围绕这个单例，DeerFlow 还提供了三个辅助函数：`reset_sandbox_provider()` 清除缓存但不做清理，供测试用例在不同 Provider 之间切换；`shutdown_sandbox_provider()` 执行正式清理，调用 Provider 的 `shutdown()` 方法释放所有托管资源；`set_sandbox_provider()` 支持依赖注入，允许测试代码直接替换 Provider 实现而不依赖配置文件解析。
 
 ## 小结
 

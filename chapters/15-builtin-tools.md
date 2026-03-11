@@ -1,8 +1,8 @@
-# 第 16 章　内置工具与社区工具
+# 第 15 章　内置工具与社区工具
 
 DeerFlow 的工具体系分为三层：**内置工具**（builtins）、**社区工具**（community）和 **MCP 扩展工具**。前两层由框架自身管理，本章将逐一拆解它们的实现细节与使用场景。
 
-## 16.1 工具加载入口
+## 15.1 工具加载入口
 
 所有工具的汇总逻辑位于 `tools/tools.py` 中的 `get_available_tools` 函数。它负责将内置工具、配置文件中声明的社区工具以及 MCP 缓存工具合并为一个统一列表：
 
@@ -54,7 +54,7 @@ def get_available_tools(
 2. **subagent 工具默认不加载**——只有当 Lead Agent 启用子代理模式时才注入 `task_tool`，防止子代理递归嵌套。
 3. **视觉工具按需注入**——`view_image_tool` 仅在模型声明 `supports_vision=True` 时才加入工具列表。
 
-## 16.2 内置工具详解
+## 15.2 内置工具详解
 
 ### 16.2.1 task — 子代理委派
 
@@ -177,7 +177,7 @@ def setup_agent(soul: str, description: str, runtime: ToolRuntime) -> Command:
     soul_file.write_text(soul, encoding="utf-8")
 ```
 
-## 16.3 社区工具
+## 15.3 社区工具
 
 社区工具位于 `backend/src/community/` 目录下，按功能模块组织，通过 `config.yaml` 中的工具声明动态加载。
 

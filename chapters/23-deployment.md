@@ -1,8 +1,8 @@
-# 第 22 章　部署与生产化
+# 第 23 章　部署与生产化
 
 从开发环境到生产部署，DeerFlow 提供了完整的 Docker Compose 编排方案、Nginx 反向代理配置和可观测性集成。本章覆盖部署的各个环节，帮助你将 DeerFlow 安全、稳定地运行在生产环境中。
 
-## 22.1 Docker Compose 完整部署
+## 23.1 Docker Compose 完整部署
 
 DeerFlow 的 Docker 开发环境由 `docker/docker-compose-dev.yaml` 定义，包含四个核心服务：
 
@@ -66,7 +66,7 @@ make docker-stop     # 停止服务
 make docker-logs     # 查看日志
 ```
 
-## 22.2 环境变量安全管理
+## 23.2 环境变量安全管理
 
 DeerFlow 的敏感信息管理遵循十二因素应用原则：
 
@@ -97,7 +97,7 @@ OPENAI_API_KEY=sk-xxxx
 - 生产环境应使用 Kubernetes Secrets 或云平台的密钥管理服务；
 - Docker Compose 中敏感变量可通过 Docker Secrets 注入。
 
-## 22.3 反向代理配置
+## 23.3 反向代理配置
 
 Nginx 作为统一入口（端口 2026），按路径分发请求：
 
@@ -149,7 +149,7 @@ add_header 'Access-Control-Allow-Headers' '*' always;
 
 生产环境应将 `*` 替换为具体域名，并启用 HTTPS。
 
-## 22.4 OpenTelemetry 与 LangSmith 追踪
+## 23.4 OpenTelemetry 与 LangSmith 追踪
 
 DeerFlow 内置了 LangSmith 追踪集成，通过环境变量配置：
 
@@ -180,7 +180,7 @@ if is_tracing_enabled():
 
 这提供了完整的 LLM 调用链路追踪，包括输入输出、延迟、Token 消耗等指标。
 
-## 22.5 性能调优
+## 23.5 性能调优
 
 **沙箱并发控制**：通过 `replicas` 参数限制并发沙箱容器数量，采用 LRU 淘汰策略：
 
@@ -222,7 +222,7 @@ checkpointer:
   connection_string: postgresql://user:pass@localhost:5432/deerflow
 ```
 
-## 22.6 生产监控
+## 23.6 生产监控
 
 **健康检查**：Gateway 暴露 `/health` 端点，Docker Compose 中可配置：
 
