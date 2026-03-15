@@ -17,7 +17,7 @@ export default defineConfig({
   ],
 
   themeConfig: {
-    logo: { src: '/logo.svg', alt: 'DeerFlow' },
+    logo: { src: '/logo.png', alt: 'DeerFlow' },
 
     nav: [
       { text: '开始阅读', link: '/chapters/01-what-is-deerflow' },
