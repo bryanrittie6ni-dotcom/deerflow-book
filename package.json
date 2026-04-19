@@ -4,7 +4,7 @@
   "description": "DeerFlow 源码解析 - ByteDance 开源 Super Agent Harness 深度解析",
   "main": "index.js",
   "scripts": {
-    "docs:dev": "vitepress dev",
+    "dev": "vitepress dev",
     "docs:build": "vitepress build",
     "docs:preview": "vitepress preview"
   },

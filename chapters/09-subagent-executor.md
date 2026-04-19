@@ -2,7 +2,7 @@
 
 上一章从架构层面介绍了 Sub-Agent 的整体设计。本章将深入 `SubagentExecutor` 的实现细节，剖析它如何通过双线程池架构、状态机管理和超时控制来可靠地执行子任务。
 
-所有核心代码都集中在 `backend/src/subagents/executor.py` 这一个文件中，代码量不到 500 行，但麻雀虽小五脏俱全。
+所有核心代码都集中在 `backend/packages/harness/deerflow/subagents/executor.py` 这一个文件中，代码量不到 500 行，但麻雀虽小五脏俱全。
 
 ## 9.1 SubagentStatus 状态机
 
@@ -227,6 +227,67 @@ Sub-Agent 的错误处理设计了三层防护网：
 
 无论异常发生在哪一层，最终都会被正确记录到 `SubagentResult` 中，保证 `task_tool` 的轮询循环一定能收到一个终态结果。
 
+## 9.8 子 Agent「未满足需求」时怎么办？与 ReAct 式循环
+
+本节回答两个常见问题：**子任务结果不够 / 执行失败时系统有没有自动补救**，以及 **是否存在独立的 ReAct 机制**。
+
+### 9.8.1 结果不满足需求时的几种情况
+
+仓库里**没有**「自动判定答案质量并强制重跑子 Agent」的模块；是否重试、换类型、改 prompt，由 **Lead Agent** 在收到 `task` 工具的返回文本后，在**自己的多轮对话**里决定。
+
+| 情况 | `SubagentResult` | `task_tool` 返回给 Lead 的摘要 | 系统内自动重试？ |
+|------|------------------|-------------------------------|------------------|
+| 子 Agent 执行抛错（`_aexecute` 的 `except`）、或 `execute` 里 `asyncio.run` 失败等 | `FAILED` | `Task failed. Error: ...`（并向前端发 `task_failed`） | **无**；Lead 可读错误后再次 `task` 或改用其它工具 |
+| 执行超过 `timeout_seconds` | `TIMED_OUT` | `Task timed out. Error: ...` | **无**；同上 |
+| 图正常结束，但模型最后一轮回答「质量差」、信息不全 | `COMPLETED` | `Task Succeeded. Result: ...` | **无**；子 Agent 仍算成功，**没有**结果校验器；补救依赖 Lead 再编排 |
+
+**成功路径下的结果来源**：`_aexecute` 在流式跑完后，从 `final_state` 的 `messages` 里取**最后一条 `AIMessage`** 拼成 `result.result`，再置 `COMPLETED`。因此「语义上没答好」与「执行成功」在状态机里是同一终态，区别只在 Lead 对返回字符串的理解。
+
+实现参考：
+
+```285:341:backend/packages/harness/deerflow/subagents/executor.py
+                if last_ai_message is not None:
+                    content = last_ai_message.content
+                    ...
+                ...
+            result.status = SubagentStatus.COMPLETED
+            result.completed_at = datetime.now()
+
+        except Exception as e:
+            ...
+            result.status = SubagentStatus.FAILED
+```
+
+```165:179:backend/packages/harness/deerflow/tools/builtins/task_tool.py
+        if result.status == SubagentStatus.COMPLETED:
+            writer({"type": "task_completed", "task_id": task_id, "result": result.result})
+            ...
+            return f"Task Succeeded. Result: {result.result}"
+        elif result.status == SubagentStatus.FAILED:
+            writer({"type": "task_failed", "task_id": task_id, "error": result.error})
+            ...
+            return f"Task failed. Error: {result.error}"
+        elif result.status == SubagentStatus.TIMED_OUT:
+            writer({"type": "task_timed_out", "task_id": task_id, "error": result.error})
+            ...
+            return f"Task timed out. Error: {result.error}"
+```
+
+### 9.8.2 子 Agent 内部的「工具失败 → 再试别的工具」
+
+子 Agent 使用 `build_subagent_runtime_middlewares()`，其中包含 **`ToolErrorHandlingMiddleware`**：工具抛错时不会整图崩溃，而是生成一条 **`ToolMessage`**，提示模型在已有上下文中继续或换工具。这与「整段子任务自动重跑」不同，属于**单次子 Agent 运行内**的多步工具循环。
+
+### 9.8.3 有没有「ReAct」？
+
+工程里**没有**名为 ReAct 的独立模块或固定的 Thought / Action / Observation 三段模板。
+
+实际采用的是 **LangChain `create_agent` 构建的 Agent 图**：模型输出 → 可能调用工具 → 工具结果写回消息 → 再进模型……这就是常见的 **ReAct 式推理—行动循环**。
+
+- **子 Agent**：`SubagentExecutor._aexecute` 里为每次运行设置 `run_config["recursion_limit"] = self.config.max_turns`，即用 **`max_turns` 限制单个子 Agent 图的最大步数**（与 Lead 侧默认的较大 `recursion_limit` 不同，见 `client` 对 Lead 的配置）。
+- **子 Agent 中间件**：`build_subagent_runtime_middlewares` **不包含** Lead 专用的 **`LoopDetectionMiddleware`**；防重复工具死循环主要在 Lead 一侧。子 Agent 侧主要依赖 **`max_turns` / 超时** 收敛。
+
+因此：**「ReAct」体现在 Agent 运行时多轮「模型 ↔ 工具」**，而不是本仓库单独实现的一套 ReAct 算法；**「子 Agent 整体失败或答案差」**则依赖 **Lead 的多轮编排**（再次 `task`、换 `subagent_type`、或 Lead 亲自调工具），而不是 Executor 内建的自动重试策略。
+
 ## 小结
 
 `SubagentExecutor` 的实现虽然紧凑，但在可靠性方面做了充分的考量：
@@ -238,5 +299,7 @@ Sub-Agent 的错误处理设计了三层防护网：
 - 全局字典 + 线程锁实现线程安全的状态共享
 - 三层错误处理确保任何异常都不会导致任务"消失"
 - 终态检查的清理机制防止内存泄漏和竞态条件
+- **`FAILED` / `TIMED_OUT` 通过 `task_tool` 明文回传 Lead，无自动重跑；`COMPLETED` 仅表示执行结束，质量补救靠 Lead 编排**（见 **9.8.1**）
+- **子 Agent 与 Lead 均为 `create_agent` 的多轮工具循环；子 Agent 用 `max_turns` 作 `recursion_limit`，无独立 ReAct 模块**（见 **9.8.3**）
 
 下一章将跳出执行引擎的视角，看看 Lead Agent 如何通过 Middleware 和 Prompt 工程来编排多个 Sub-Agent 的并发调度。
