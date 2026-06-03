@@ -178,7 +178,41 @@ def _create_summarization_middleware():
     )
 ```
 
-详细的摘要策略将在第 8 章展开。
+#### 压缩上下文的原理（详细）
+
+**它解决什么问题**  
+Agent 状态里的 `messages` 会随轮次线性增长。若不处理，迟早会撞上模型的上下文上限，或导致每轮请求体积与费用失控。**压缩上下文**指的是：在对话超过配置的阈值后，由中间件把**较早**的多条消息**合并成少量摘要文本**（通常是一条「总结性」消息），再按 **`keep`** 策略保留**最近**若干消息或 token，使**后续每一轮**模型调用所看到的列表更短、更省 token。
+
+**与「记忆（memory.json）」的根本区别**（读下面第 8 层时对照）  
+
+| 维度 | Summarization（本层） | Memory（第 8 层 + 后台更新） |
+|------|----------------------|------------------------------|
+| 作用对象 | 当前线程的 **`state["messages"]`** | 磁盘上的 **`memory.json`（或按 agent 分文件）** |
+| 是否改变当轮图状态 | 会：**直接改写**即将送给模型的消息列表 | **不会**改 `messages`：`after_agent` 只入队，异步更新文件 |
+| 主要目的 | **_fit 模型窗口_、降本、长对话可继续** | **跨会话个性化**：下一段对话的 system prompt 注入摘要与事实 |
+| 典型消费者 | 同一线程内后续的 LLM / 中间件 | `apply_prompt_template` 里的 `<memory>` 块 |
+
+二者可同时开启：线程内先被摘要「瘦身」，同时本轮对话的**用户可见回合**仍会被 Memory 管道抽走做长期归档（见下）。
+
+**DeerFlow 如何配置（`SummarizationConfig`）**  
+
+- **`enabled`**：为 `false` 时不创建该中间件，消息不会被自动摘要。  
+- **`trigger`**：达到即触发摘要；可为**多条**条件，**任一**满足即运行。每条为 `(type, value)`：  
+  - **`messages`**：消息条数达到 `value`；  
+  - **`tokens`**：估算 token 达到 `value`；  
+  - **`fraction`**：达到当前模型最大输入的 `value` 比例（如 `0.8`）。  
+- **`keep`**：摘要**之后**要**保留**多少上下文，同样支持 `messages` / `tokens` / `fraction` 三种语义——即「老历史进摘要，新尾巴原样留」。  
+- **`trim_tokens_to_summarize`**：在把待摘要片段送给「摘要模型」之前，先裁一层，避免单次摘要调用输入过长；设为 `null` 可关闭该裁剪（以项目配置为准）。  
+- **`model_name`**：专用摘要模型；不指定时倾向用**较轻**的聊天模型（`thinking_enabled=False`），与主对话模型解耦以省成本。  
+- **`summary_prompt`**：可选，覆盖 LangChain 默认摘要提示词。
+
+**在管道中的位置为何要紧挨 Todo 之前**  
+摘要会**物理删除或折叠**部分旧消息。若其中曾包含 **`write_todos` 的工具轨迹**，模型会「看不见」当前任务列表；因此 **TodoMiddleware** 必须在摘要**之后**运行，用 `before_model` 检测「上下文里是否还有 todos」，必要时注入 `<system_reminder>` 补救（见下一节）。
+
+**执行时机**  
+该层挂在 LangChain 的 **`SummarizationMiddleware`** 上，在 **`wrap_model_call`** 路径中参与对消息流的处理（与书中 6.5 轨迹里「LLM 调用前」的步骤一致）。启用后，**后续中间件与同一轮模型**看到的 `messages` 可能已是压缩后的版本。
+
+更细的 YAML 字段与调参可对照附录 **《配置参考》**（`appendix-b-config-reference.md`）与源码 `summarization_config.py`；此处强调**机制**：**阈值触发 → 用摘要模型压缩旧历史 → 保留尾部 → 继续对话**。长期记忆的落盘与注入链路见本书 **第 11、12 章** 与上文第 8 层「记忆处理的原理」。
 
 ### 第 6 层：TodoMiddleware（可选，仅 Plan Mode）
 
@@ -244,6 +278,87 @@ class MemoryMiddleware(AgentMiddleware[MemoryMiddlewareState]):
 ```
 
 关键细节：它会过滤掉工具调用消息和中间步骤，只保留用户输入与最终助手回复。还会清除 `UploadsMiddleware` 注入的 `<uploaded_files>` 块，因为文件路径是会话级别的临时数据，不应持久化到长期记忆中。
+
+#### 记忆处理的原理（详细）
+
+记忆子系统解决的是另一件事：**把多轮对话里「值得带到明天」的信息抽出来，存进 JSON，再在之后的会话里写回 system prompt**。它不替代 **Summarization**：前者管**磁盘上的用户画像**，后者管**当前线程消息列表是否塞得下**。
+
+**端到端数据流**（与源码模块对应）：
+
+```mermaid
+flowchart LR
+  subgraph agent["本轮 Agent 结束"]
+    M1["state messages<br/>含工具/多轮"]
+    M2["_filter_messages_for_memory"]
+    M3["仅 human + 无 tool_calls 的 AI"]
+  end
+  subgraph async["异步 / 防抖"]
+    Q["MemoryUpdateQueue.add"]
+    T["debounce_seconds 定时器"]
+    P["_process_queue"]
+  end
+  subgraph persist["持久化"]
+    U["MemoryUpdater.update_memory"]
+    L["LLM 输出 JSON 增量"]
+    F["memory.json / agent 分文件"]
+  end
+  subgraph next["后续会话"]
+    R["get_memory_data 读盘+缓存"]
+    I["format_memory_for_injection"]
+    S["system prompt 中 memory 块"]
+  end
+  M1 --> M2 --> M3 --> Q --> T --> P --> U --> L --> F
+  F --> R --> I --> S
+```
+
+**1. 钩子与触发条件**  
+
+- **`after_agent`**：一整次 Agent 运行结束后执行；**不返回** state 更新，因此**不会**直接改动当前 `messages`。  
+- **`get_memory_config().enabled`** 为 `false` 时整段跳过。  
+- 需要 **`runtime.context["thread_id"]`**；缺失则不入队。  
+- 过滤后必须**至少各有一条**用户消息与助手消息，否则认为没有可归档的「成对」对话，不入队。
+
+**2. `_filter_messages_for_memory` 在做什么**  
+
+这是记忆与「全量对话日志」的分界线：  
+
+- **丢弃**：所有 **`tool` 类型**消息；所有带 **`tool_calls`** 的 **AI** 消息（中间推理步骤）。  
+- **保留**：纯 **`human`**；以及**不带** `tool_calls` 的 **AI**（视为**该轮对用户可见的最终回复**）。  
+- **`<uploaded_files>`**：从 human 正文中**剥掉**该 XML 块；若去掉后**为空**（整段只是上传清单、没有真实提问），则**整轮 human 及紧随其后的那条 AI** 一并跳过，避免把无意义的「仅上传」回合写入长期记忆。  
+- 多模态 human（`content` 为 list）会粗略拼成字符串再参与上述逻辑。
+
+这样进入队列的是**用户原话 + 最终答复**的序列，体积和噪声都小于完整 LangGraph 消息流。
+
+**3. 防抖队列 `MemoryUpdateQueue`**  
+
+- **`add(thread_id, messages, agent_name)`**：同一 `thread_id` 若已在队列中，会被**新快照替换**（只保留最新一次待写盘内容）。  
+- **`debounce_seconds`**（默认 30，配置见 `MemoryConfig`）：每次 `add` 会**重置**定时器；窗口内多次对话结束只会触发**一批**处理，减少 LLM 写记忆次数与竞态。  
+- 定时到期后 **`MemoryUpdater.update_memory`** 对每个 `ConversationContext` 依次执行；多线程下用锁避免重入，必要时推迟下一轮。
+
+**4. `MemoryUpdater`：如何用 LLM 合并进 JSON**  
+
+- 读取当前 **`get_memory_data(agent_name)`**（带文件 mtime 的内存缓存，文件变了会失效重读）。  
+- 用 **`format_conversation_for_update`** 把本轮过滤后的消息打成纯文本，嵌入 **`MEMORY_UPDATE_PROMPT`**，与**整份当前 memory JSON** 一起交给 **`create_chat_model(..., thinking_enabled=False)`**。  
+- 期望模型返回**严格 JSON**：包含 `user` / `history` 各子段的 `summary` + `shouldUpdate`、`newFacts`、`factsToRemove` 等。  
+- **`_apply_updates`**：按 `shouldUpdate` 写回各 summary；合并 **facts**（去重键为规范化后的 `content`）；新 fact 需 **`confidence >= fact_confidence_threshold`**；总量超过 **`max_facts`** 时按置信度截断。  
+- 写盘前 **`_strip_upload_mentions_from_memory`**：用正则从 summary / facts 里再刮一层「上传文件」类表述，避免下次会话模型去搜已不存在的上传路径。  
+- 文件 **`json.dump` → 临时文件 → replace**，近似原子写；路径由 **`MemoryConfig.storage_path`** 与 **`get_paths()`** 解析（全局或 **`agent_memory_file(agent_name)`**）。
+
+**5. 注入：下一轮对话如何「看见」记忆**  
+
+- 与中间件**异步**解耦：文件更新后，**下一次**构建 system prompt 时 **`lead_agent/prompt.py`** 的 **`_get_memory_context(agent_name)`** 会：  
+  - 若 **`injection_enabled`** 关闭则返回空；  
+  - 否则 **`format_memory_for_injection(memory_data, max_tokens=max_injection_tokens)`**：按块输出 User Context / History / Facts（facts 按置信度排序，在 token 预算内逐条追加）；  
+  - 包进 **`<memory>...</memory>`** 填入模板占位符 **`{memory_context}`**。  
+
+因此：**MemoryMiddleware 负责「收稿 + 排队 + 触发写盘」**；**读盘与注入**发生在**提示词组装阶段**，不是 `before_model` 里再插一条消息。
+
+**6. 与 Summarization 同开时的直观分工**  
+
+- **Summarization**：线程内 **`messages`** 变短，模型**当下**能继续推理。  
+- **Memory**：从（过滤后的）回合里**蒸馏**用户稳定偏好与事实，供**以后**会话在 system 层预热。  
+
+两者都可能在后台调用 LLM，但调用目的、输入形态与落点完全不同，不宜混为一谈。
 
 ### 第 9 层：ViewImageMiddleware（可选，仅视觉模型）
 

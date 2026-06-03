@@ -115,6 +115,40 @@ def get_available_tools(
 
 注意 MCP 与扩展状态使用 **`ExtensionsConfig.from_file()`** 读取，便于 Gateway 热更新。
 
+### 5.4.1 从「配置里的 tools」到「大模型看到的工具」：两段收窄
+
+很多读者会把 **`config.yaml` 里的 `tools:`** 理解成「先全部注册进全局，再挑一部分给模型」。在 DeerFlow 里更准确的画面是：**只在内存里组装出一个 `list[BaseTool]`**，再交给 LangChain **`create_agent(tools=...)`**；**大模型每一轮实际能当函数调用的名字/schema，还可能比这个列表更短**。可以记成 **两段收窄**：
+
+```mermaid
+flowchart LR
+  subgraph pass1["第一段：列表组装（Python）"]
+    A["config.tools + 内置 + MCP"] --> B["get_available_tools"]
+    B --> C["list[BaseTool]"]
+  end
+  subgraph pass2["第二段：调模型前（可选）"]
+    C --> D["create_agent 持有全列表"]
+    D --> E["ToolNode 执行仍用全列表"]
+    D --> F["wrap_model_call"]
+    F --> G["bind_tools 子集 → LLM"]
+  end
+```
+
+**第一段：列表组装（只发生一次在 `make_lead_agent` 里）**
+
+1. **`config.tools`**：每一行的 **`use:`** 用 **`resolve_variable`** 解析成 **类/工厂**，再实例化成 **`BaseTool`**。**没有**先「注册到全局表」再给 Lead 订阅——**没写进 YAML 的 `use` 就不会出现在列表里**。
+2. **收窄**：**`tool_groups`** 只保留 **`tool.group` 落在组内** 的 YAML 条目；**`subagent_enabled`** 决定是否加上 **`task`**；**`supports_vision`** 决定是否加上 **`view_image`**；MCP 整批追加（或走 **`tool_search`** 分支，见 **5.8.2**）。
+3. 得到 **`tools=get_available_tools(...)`** 的返回值，原样传给 **`create_agent(..., tools=...)`**。这是 **Agent 对象的「能力全集」**（执行侧认这份列表）。
+
+**第二段：传给大模型的可见工具（每一轮请求都可能发生）**
+
+LangChain **`create_agent`** 内部在 **调用聊天 API 前** 会把当前允许的 **`BaseTool`** 转成 **OpenAI function / tool schema**，与消息一起发给模型（即常说的 **`bind_tools`**）。DeerFlow 在中间件里可以 **改「即将绑定」的那份列表**：
+
+-  **`DeferredToolFilterMiddleware`**（**`tool_search.enabled`** 时）：在 **`wrap_model_call`** 里从 **`request.tools` 去掉所有「延迟 MCP」工具名**，再交给内层 handler。于是 **LLM 请求体里** 只有 **活跃工具 + `tool_search`**；但 **ToolNode** 仍持有 **完整 `tools` 列表**，所以模型在对话里通过 **`tool_search`** 见过 schema 之后发出的 **`tool_calls`**，依然能被执行。
+
+**和「Skills」的区别（再强调一次）**：**Skills 不进入 `tools` 列表**；只有 **`read_file`** 等已在第一段列表里的工具。Skill 只在 **system prompt** 里用 **`<skill>` 元数据** 告诉模型「去读哪个路径」。
+
+**一句话**：**第一段**决定 **Agent 进程里「有哪些工具对象可执行」**；**第二段**（默认与第一段相同，开启 **`tool_search` 时除外）决定 **「这一轮请求里把哪些 schema 发给大模型」**。细节与表格仍见 **5.7 / 5.8**；**`tool_search` 与 MCP** 见 **5.8.2**。
+
 ## 5.5 ThreadState 详解
 
 `ThreadState` 是 Lead Agent 的状态模式，定义了对话线程中需要持久化的所有数据。它继承自 LangChain 的 `AgentState`（自带 `messages` 字段），并扩展了多个业务字段：
@@ -384,7 +418,7 @@ You have access to skills that provide optimized workflows for specific tasks. .
 Lead Agent 的创建过程体现了 DeerFlow 的核心设计理念：
 
 1. **三层模型解析**：请求参数 > Agent 配置 > 全局默认，层层降级保证可用性。
-2. **动态工具组装**：配置工具 + MCP 工具 + 内置工具 + 条件工具，按需组合；**`tool_search`** 时对 MCP 做 **延迟暴露**，配合中间件减小默认 **bind_tools** 体积。
+2. **动态工具组装**：配置工具 + MCP 工具 + 内置工具 + 条件工具，按需组合；**`tool_search`** 时对 MCP 做 **延迟暴露**，配合中间件减小默认 **bind_tools** 体积。**从 YAML 到 LLM 是「两段收窄」**：先 **`get_available_tools` 得到可执行全集**，再 **`wrap_model_call` 时（可选）缩小绑定给模型的 schema**（见 **5.4.1**）。
 3. **类型安全的状态管理**：`ThreadState` 通过 TypedDict + Annotated reducer 实现可预测的状态合并。
 4. **模板化提示词**：系统提示词根据运行时参数动态生成；**Skills** 以列表 + 路径形式注入，**不占工具槽**，需用时再 **`read_file`**。
 5. **工具「选择」**：候选集由 **`get_available_tools` + 中间件** 收窄，**具体调用哪个**由 **模型** 根据 schema 与对话决定（**5.7**）；工具过多主要带来 **上下文与误选** 压力，可用 **分组 / 延迟加载 / 关 skill** 缓解。
